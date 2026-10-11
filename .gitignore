@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+
+.pi/
+.savegame
+deps/
+principe.json
+dist/
+node_modules/
+tmp/

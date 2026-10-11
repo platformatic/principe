@@ -1,0 +1,44 @@
+{
+  "name": "principe",
+  "version": "0.1.0",
+  "description": "A Node.js terminal frontend for external libretro cores",
+  "homepage": "https://github.com/platformatic/principe",
+  "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platformatic/principe.git"
+  },
+  "keywords": [
+    "libretro",
+    "kitty",
+    "opentui"
+  ],
+  "bugs": {
+    "url": "https://github.com/platformatic/principe/issues"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --no-warnings src/index.js",
+    "lint": "eslint --cache",
+    "clean": "rm -rf dist tmp",
+    "distclean": "rm -rf deps dist tmp",
+    "format": "prettier -w src",
+    "prepare": "node --no-warnings ./src/scripts/dependencies.js",
+    "notarize:mac": "bash ./src/scripts/notarize-macos.sh",
+    "sea": "node ./src/scripts/sea.js",
+    "release:artifact": "bash ./src/scripts/prepare-artifact.sh"
+  },
+  "devDependencies": {
+    "eslint": "^9.35.0",
+    "neostandard": "^0.12.2",
+    "prettier": "^3.8.1",
+    "prettier-plugin-space-before-function-paren": "^0.0.10",
+    "rolldown": "1.0.0-rc.17",
+    "semver": "^7.7.4"
+  },
+  "engines": {
+    "node": ">=26.10.0"
+  }
+}

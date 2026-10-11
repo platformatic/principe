@@ -1,0 +1,13 @@
+{
+  "main": "./dist/index.js",
+  "mainFormat": "module",
+  "output": "./dist/principe",
+  "execArgv": ["--no-warnings"],
+  "useCodeCache": false,
+  "useVfs": true,
+  "assets": {
+    "src/config.schema.json": "src/config.schema.json",
+    "deps/audio/libSDL3.dylib": "deps/audio/libSDL3.dylib",
+    "deps/video/libopentui.dylib": "deps/video/libopentui.dylib"
+  }
+}

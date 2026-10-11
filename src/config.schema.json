@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Principe configuration v1",
+  "description": "Editor schema only; not validated at runtime. Config paths are relative to the configuration file. Pass the ROM as a CLI positional argument.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["paths"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1, "default": 1 },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core"],
+      "default": {},
+      "properties": {
+        "system": { "type": "string", "minLength": 1, "default": "./data/system" },
+        "saves": { "type": "string", "minLength": 1, "default": "saves" },
+        "core": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required external libretro core library. Bootstrap can download a recognized core on request; no core is bundled."
+        },
+        "video": { "$ref": "#/definitions/optionalPath", "default": null },
+        "audio": { "$ref": "#/definitions/optionalPath", "default": null }
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "core": { "type": "object", "additionalProperties": { "type": "string" }, "default": {} },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "maxFps": { "type": "number", "minimum": 1, "maximum": 240, "default": 60 },
+            "scaling": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8,
+              "default": 3,
+              "description": "Maximum integer nearest-neighbor source scaling, independent of the displayed viewport."
+            },
+            "zlib": { "type": "boolean", "default": true },
+            "aspectRatio": { "type": ["number", "null"], "minimum": 0.1, "maximum": 10, "default": null },
+            "fixIndexing": {
+              "type": "boolean",
+              "default": false,
+              "description": "Rewrite native Kitty placement z-index to -1, above cell backgrounds and below text."
+            }
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "showStatus": { "type": "boolean", "default": true },
+            "protocolTimeoutMs": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 10000,
+              "default": 2000,
+              "description": "Timeout for terminal keyboard negotiation and pixel-resolution queries."
+            }
+          }
+        },
+        "audio": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "device": { "type": ["string", "null"], "minLength": 1, "default": null },
+            "volume": { "type": "number", "minimum": 0, "maximum": 1, "default": 1 },
+            "latencyMs": { "type": "integer", "minimum": 20, "maximum": 500, "default": 80 },
+            "maxLatencyMs": { "type": "integer", "minimum": 40, "maximum": 2000, "default": 200 },
+            "maxRateCorrection": { "type": "number", "minimum": 0, "maximum": 0.02, "default": 0.005 }
+          }
+        },
+        "save": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "module": { "$ref": "#/definitions/optionalPath", "default": null },
+            "initialSlot": { "$ref": "#/definitions/slot", "default": 1 }
+          }
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "minLength": 1 },
+      "description": "Complete keyboard chord map using action[:modifier] strings. Omit bindings for defaults; an empty map disables all bindings. Keys are not restricted to a platform-specific list. Actions and modifiers are validated at runtime.",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "definitions": {
+    "optionalPath": { "type": ["string", "null"], "minLength": 1 },
+    "slot": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" }
+      ]
+    }
+  }
+}
