@@ -1,6 +1,6 @@
 {
   "name": "principe",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A Node.js terminal frontend for external libretro cores",
   "homepage": "https://github.com/platformatic/principe",
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
