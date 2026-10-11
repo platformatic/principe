@@ -1,4 +1,4 @@
-import { dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
+import { DynamicLibrary, dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
 import { endianness } from 'node:os'
 import { NativeError, ConfigError, PersistenceError, StateError } from './errors.js'
 import { randomUUID, createHash } from 'node:crypto'
@@ -100,12 +100,30 @@ export function readAV (buffer) {
   return { ...readGeometry(buffer), fps: buffer.readDoubleLE(24), sampleRate: buffer.readDoubleLE(32) }
 }
 
+let sink
+
+function logSink () {
+  // Some cores crash without a log interface, and some call it from their own threads,
+  // where JavaScript callbacks cannot run. The advertised sink is therefore a native
+  // function that ignores its arguments: under the SysV and AAPCS64 calling conventions
+  // a parameterless function is a valid target for a variadic call. getpagesize() has
+  // no side effects, so core logs are discarded.
+  if (sink === undefined) {
+    try {
+      sink = new DynamicLibrary(null).getSymbol('getpagesize')
+    } catch {
+      sink = null
+    }
+  }
+
+  return sink
+}
+
 export class Environment {
   pixelFormat = 0
   shutdown = false
   av = null
   messages = []
-  logs = []
   unsupported = new Set()
   options = new Map()
   #configured
@@ -132,15 +150,6 @@ export class Environment {
     }
 
     return pointerOf(this.#strings.get(value))
-  }
-
-  log (level, format) {
-    // Only the fixed arguments reach JavaScript: variadic values are never formatted.
-    this.logs.push({ level, format: stringAt(format) })
-
-    if (this.logs.length > 64) {
-      this.logs.shift()
-    }
   }
 
   handle (command, pointer) {
@@ -448,10 +457,8 @@ export class Core {
         needFullpath: Boolean(info[24])
       }
 
-      // Install all frontend callbacks before initialization can invoke them. Some cores
-      // request the log interface during retro_set_environment and crash without one.
-      const log = core.#callback(['int32', 'pointer'], 'void', (level, format) => core.environment.log(level, format))
-      core.environment = new Environment(config, log)
+      // Install all frontend callbacks before initialization can invoke them.
+      core.environment = new Environment(config, logSink())
       core.#register('environment', ['uint32', 'pointer'], 'bool', (command, pointer) =>
         core.environment.handle(command, pointer))
       core.#register('video_refresh', ['pointer', 'uint32', 'uint32', 'uint64'], 'void', (...args) =>
@@ -557,13 +564,9 @@ export class Core {
   }
 
   #register (name, args, result, callback) {
-    this.#call(`retro_set_${name}`, this.#callback(args, result, callback))
-  }
-
-  #callback (args, result, callback) {
     // SAFETY: Synchronous core callbacks execute on the thread that loaded it.
     // Exceptions are deferred until C returns; no Promise crosses this boundary.
-    return this.#lib.registerCallback({ arguments: args, return: result }, (...values) => {
+    const pointer = this.#lib.registerCallback({ arguments: args, return: result }, (...values) => {
       if (this.#failure) {
         return result === 'uint64' ? 0n : 0
       }
@@ -575,6 +578,8 @@ export class Core {
         return result === 'uint64' ? 0n : 0
       }
     })
+
+    this.#call(`retro_set_${name}`, pointer)
   }
 
   #call (name, ...args) {
@@ -1282,8 +1287,7 @@ class Session {
       slot: this.#slot,
       shutdownRequested: this.#core.environment.shutdown,
       unsupportedEnvironmentCommands: [...this.#core.environment.unsupported].sort((a, b) => a - b),
-      messages: [...this.#core.environment.messages],
-      logs: [...this.#core.environment.logs]
+      messages: [...this.#core.environment.messages]
     }
   }
 
