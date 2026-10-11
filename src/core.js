@@ -1078,10 +1078,12 @@ class Session {
       const position = event.x === null ? this.#mouseLast : this.#renderer.locate(event.x, event.y)
       const frame = this.#core.frame
 
-      // A new video mode means a new program or driver state, which resets game cursors.
+      // A new video mode means a new program or driver state, which resets game cursors. The
+      // last position is in the old frame's pixels, so it cannot serve as a motion baseline.
       if (frame && `${frame.width}x${frame.height}` !== this.#mouseGeometry) {
         this.#mouseGeometry = `${frame.width}x${frame.height}`
         this.#homingDue = true
+        this.#mouseLast = null
       }
 
       if (this.#mouseHoming && frame && position?.inside && (this.#homingDue || !this.#mouseLast?.inside)) {
