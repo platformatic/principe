@@ -105,14 +105,17 @@ export class Environment {
   shutdown = false
   av = null
   messages = []
+  logs = []
   unsupported = new Set()
   options = new Map()
   #configured
   #strings = new Map()
   #paths
+  #log
 
-  constructor (config) {
+  constructor (config, log = null) {
     this.#configured = config.options.core
+    this.#log = log
 
     // These command IDs ask for system files, the loaded core and the save directory.
     this.#paths = new Map([
@@ -129,6 +132,15 @@ export class Environment {
     }
 
     return pointerOf(this.#strings.get(value))
+  }
+
+  log (level, format) {
+    // Only the fixed arguments reach JavaScript: variadic values are never formatted.
+    this.logs.push({ level, format: stringAt(format) })
+
+    if (this.logs.length > 64) {
+      this.logs.shift()
+    }
   }
 
   handle (command, pointer) {
@@ -217,6 +229,13 @@ export class Environment {
         return 1
       case 24: // GET_INPUT_DEVICE_CAPABILITIES: joypad only.
         memory(pointer, 8).writeBigUInt64LE(2n)
+        return 1
+      case 27: // GET_LOG_INTERFACE
+        if (!this.#log) {
+          return 0
+        }
+
+        memory(pointer, 8).writeBigUInt64LE(BigInt(this.#log))
         return 1
       case 32: // SET_SYSTEM_AV_INFO
         this.av = readAV(memory(pointer, 40))
@@ -429,8 +448,10 @@ export class Core {
         needFullpath: Boolean(info[24])
       }
 
-      // Install all frontend callbacks before initialization can invoke them.
-      core.environment = new Environment(config)
+      // Install all frontend callbacks before initialization can invoke them. Some cores
+      // request the log interface during retro_set_environment and crash without one.
+      const log = core.#callback(['int32', 'pointer'], 'void', (level, format) => core.environment.log(level, format))
+      core.environment = new Environment(config, log)
       core.#register('environment', ['uint32', 'pointer'], 'bool', (command, pointer) =>
         core.environment.handle(command, pointer))
       core.#register('video_refresh', ['pointer', 'uint32', 'uint32', 'uint64'], 'void', (...args) =>
@@ -536,9 +557,13 @@ export class Core {
   }
 
   #register (name, args, result, callback) {
+    this.#call(`retro_set_${name}`, this.#callback(args, result, callback))
+  }
+
+  #callback (args, result, callback) {
     // SAFETY: Synchronous core callbacks execute on the thread that loaded it.
     // Exceptions are deferred until C returns; no Promise crosses this boundary.
-    const pointer = this.#lib.registerCallback({ arguments: args, return: result }, (...values) => {
+    return this.#lib.registerCallback({ arguments: args, return: result }, (...values) => {
       if (this.#failure) {
         return result === 'uint64' ? 0n : 0
       }
@@ -550,8 +575,6 @@ export class Core {
         return result === 'uint64' ? 0n : 0
       }
     })
-
-    this.#call(`retro_set_${name}`, pointer)
   }
 
   #call (name, ...args) {
@@ -1259,7 +1282,8 @@ class Session {
       slot: this.#slot,
       shutdownRequested: this.#core.environment.shutdown,
       unsupportedEnvironmentCommands: [...this.#core.environment.unsupported].sort((a, b) => a - b),
-      messages: [...this.#core.environment.messages]
+      messages: [...this.#core.environment.messages],
+      logs: [...this.#core.environment.logs]
     }
   }
 
