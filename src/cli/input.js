@@ -45,10 +45,26 @@ export function bindingLabel (binding) {
   return `${action}${binding.slot === undefined ? '' : ` (slot ${binding.slot})`}`
 }
 
+const keyLabels = {
+  pageup: 'Page Up',
+  pagedown: 'Page Down',
+  capslock: 'Caps Lock',
+  scrolllock: 'Scroll Lock',
+  numlock: 'Num Lock',
+  printscreen: 'Print Screen'
+}
+
 function keyLabel (key) {
+  // Format canonical names for display only; persisted chords stay unchanged.
   return key
     .split('+')
-    .map(part => part.toUpperCase())
+    .map(
+      part =>
+        keyLabels[part] ??
+        part
+          .replace(/^(left|right)(shift|alt|ctrl|super|hyper|meta)$/, '$1 $2')
+          .replace(/(^|\s)\S/g, character => character.toUpperCase())
+    )
     .join(' + ')
 }
 

@@ -5,8 +5,11 @@ import { configureInput } from './cli/input.js'
 import { loadSession } from './core.js'
 import { ConfigError } from './errors.js'
 
-const usage =
-  'Usage: principe ROM [-c PATH | --config PATH]\n       principe -h | --help\n       principe -a | --audio\n       principe (-i | --input) [-p | --probe] [-c PATH | --config PATH]\n       principe (-b | --bootstrap) [CORE] [-c PATH | --config PATH]'
+const usage = `Usage: principe [-c PATH | --config PATH] ROM
+       principe [-c PATH | --config PATH] -b | --bootstrap [CORE]
+       principe [-c PATH | --config PATH] -i | --input [-p | --probe]
+       principe -a | --audio
+       principe -h | --help`
 
 export function parseCommandLine (args) {
   try {
