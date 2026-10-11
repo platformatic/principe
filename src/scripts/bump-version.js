@@ -1,18 +1,31 @@
 #!/usr/bin/env -S node
 
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { inc, valid } from 'semver'
 import { DependencyError } from '../errors.js'
 
+if (existsSync('.env')) {
+  process.loadEnvFile()
+}
+
 function getUserInfo () {
   const username = process.argv[3] ?? process.env.GITHUB_ACTOR
+  const defaultUser = 'mcollina'
+
   const users = {
     mcollina: ['Matteo Collina', 'hello@matteocollina.com'],
     ShogunPanda: ['Paolo Insogna', 'paolo@cowtech.it']
   }
 
-  return users[username] ?? users.mcollina
+  let userInfo = users[username]
+
+  if (!userInfo) {
+    userInfo = users[defaultUser]
+  }
+
+  return userInfo
 }
 
 async function getVersion () {
@@ -34,6 +47,7 @@ async function getVersion () {
 async function updatePackageJson (version) {
   const packageJson = JSON.parse(await readFile('package.json', 'utf8'))
   packageJson.version = version
+
   await writeFile('package.json', JSON.stringify(packageJson, null, 2) + '\n')
 }
 
@@ -46,6 +60,7 @@ if (!version) {
 
 await updatePackageJson(version)
 
+// Release automation supplies an identity; local runs retain the developer's Git configuration.
 if (process.env.GITHUB_ACTIONS === 'true') {
   // Repository-local identity avoids changing the runner's global Git settings.
   execFileSync('git', ['config', 'user.name', userInfo[0]])

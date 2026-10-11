@@ -1,14 +1,18 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { dlopen } from 'node:ffi'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { DependencyError } from '../errors.js'
 
+if (existsSync('.env')) {
+  process.loadEnvFile()
+}
+
 const exec = promisify(execFile)
-const root = resolve(import.meta.dirname, '../..')
-const deps = resolve(root, 'deps')
+const deps = resolve(import.meta.dirname, '../../deps')
 const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']
 const currentTarget = `${process.platform}-${process.arch}`
 
@@ -44,6 +48,7 @@ async function metadata (url) {
 
 async function download (url, path) {
   info(`Downloading ${basename(path)}...`)
+
   const response = await fetch(url, { signal: AbortSignal.timeout(120000) })
 
   if (!response.ok) {
@@ -98,7 +103,7 @@ async function preflight () {
   }
 }
 
-export async function install (name, action) {
+async function install (name, action) {
   step(name)
   const temporary = await mkdtemp(resolve(deps, `.${name}-`))
   const destination = resolve(deps, name)
@@ -139,8 +144,8 @@ export async function install (name, action) {
 async function importSDL (directory, libraries) {
   for (const { source, filename, version } of libraries) {
     info(`Importing ${source} (${version})...`)
-    const data = await readFile(source)
-    await writeFile(resolve(directory, filename), data)
+    const bytes = await readFile(source)
+    await writeFile(resolve(directory, filename), bytes)
   }
 }
 
@@ -156,30 +161,29 @@ async function installVideo (target) {
     const path = resolve(directory, 'package.tgz')
     const bytes = await download(data.dist.tarball, path)
 
-    // Verify the npm archive before extracting any native code from it.
+    // Verify npm's integrity metadata before extracting executable native code.
     if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== data.dist.integrity) {
       throw new DependencyError('OpenTUI archive integrity mismatch')
     }
 
     const filename = target.startsWith('darwin-') ? 'libopentui.dylib' : 'libopentui.so'
-    info('Extracting OpenTUI library...')
     await run('tar', ['-xzf', path, '-C', directory, '--strip-components=1', `package/${filename}`])
     await rm(path)
   })
 }
 
 async function main () {
-  if (!targets.includes(currentTarget)) {
-    throw new DependencyError(`Unsupported host: ${currentTarget}`)
-  }
-
   const target = process.argv[2] ?? currentTarget
 
   if (!targets.includes(target)) {
     throw new DependencyError(`Unsupported video target: ${target}`)
   }
 
-  // Resolve local prerequisites before replacing any existing dependency directory.
+  if (!targets.includes(currentTarget)) {
+    throw new DependencyError(`Unsupported host: ${currentTarget}`)
+  }
+
+  // Validate local prerequisites before touching any managed dependency directory.
   const sdl = await preflight()
   await mkdir(deps, { recursive: true })
 

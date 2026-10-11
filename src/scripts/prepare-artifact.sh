@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
 platform="${1:?platform is required}"
 arch="${2:?arch is required}"
 extension=""
@@ -29,11 +35,12 @@ if [[ ! -s LICENSE || ! -s THIRD_PARTY_NOTICES ]]; then
   exit 1
 fi
 
-# Recreate only this platform's staging directory, leaving other artifacts intact.
+# Rebuild only this platform/architecture's staging directory from the completed executable.
 rm -rf "$artifact_dir"
 mkdir -p "$artifact_dir"
 cp "$source" "$target"
+
 chmod a+x "$target"
 
-# Keep legal notices alongside the binary without embedding them in the CLI bundle.
+# Copy repository license texts verbatim alongside the executable.
 cp LICENSE THIRD_PARTY_NOTICES "$artifact_dir/"

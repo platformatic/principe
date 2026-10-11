@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { build } from 'rolldown'
 import { DependencyError } from '../errors.js'
+
+if (existsSync('.env')) {
+  process.loadEnvFile()
+}
 
 function getPlatformConfig () {
   if (!['darwin', 'linux'].includes(process.platform)) {
@@ -57,20 +62,24 @@ async function getNodeBinary ({ platform, arch }) {
     return process.execPath
   }
 
-  // An explicit Node build base must identify a version, not just a download host.
+  // Custom Node distributions encode the version in the base URL's final path segment.
   const nodeBaseUrl = new URL(baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
-  const version = nodeBaseUrl.pathname.split('/').filter(Boolean).at(-1)
+  const pathParts = nodeBaseUrl.pathname.split('/').filter(Boolean)
+  const version = pathParts.at(-1)
 
   if (!version || !/^v\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(version)) {
     throw new DependencyError(`Unable to determine Node version from NODE_BUILD_BASE_URL: ${baseUrl}`)
   }
 
   const nodeDirectory = join('tmp', `node-${platform}-${arch}`)
+  const archiveBase = join('tmp', `node-${platform}-${arch}`)
   const archiveName = `node-${version}-${platform}-${arch}`
+
+  // Replace only the target-specific staging directory, not other packaging intermediates.
   await rm(nodeDirectory, { force: true, recursive: true })
   await mkdir(nodeDirectory, { recursive: true })
 
-  const archive = `${nodeDirectory}.tar.gz`
+  const archive = `${archiveBase}.tar.gz`
   const nodeBinary = join(nodeDirectory, 'bin', 'node')
 
   await download(new URL(`${archiveName}.tar.gz`, nodeBaseUrl).href, archive)
@@ -111,7 +120,7 @@ async function main () {
 
   if (process.platform === 'darwin') {
     // SEA changes the executable image; arm64 macOS requires a new signature.
-    // Release notarization replaces this local ad-hoc signature later.
+    // Release notarization can replace this local ad-hoc signature later.
     await run('codesign', ['--force', '--sign', '-', config.output])
   }
 }

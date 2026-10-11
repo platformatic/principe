@@ -2,12 +2,19 @@
 
 set -euo pipefail
 
+if [[ -f .env ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
 version="${1:?version is required}"
 prerelease="${2:-false}"
 artifacts_path="${3:-artifacts}"
+
 version="${version#v}"
 tag="v$version"
-flags=(--verify-tag)
+flags=()
 
 if [[ "$prerelease" == "true" ]]; then
   flags+=(--prerelease)
@@ -18,7 +25,6 @@ if [[ ! -d "$artifacts_path" ]]; then
   exit 1
 fi
 
-# nullglob makes a missing artifact set detectable instead of retaining a literal wildcard.
 shopt -s nullglob
 artifact_directories=("$artifacts_path"/*)
 
@@ -27,9 +33,8 @@ if [[ ${#artifact_directories[@]} -eq 0 ]]; then
   exit 1
 fi
 
-release_assets_dir="$PWD/tmp/release-assets"
-
-# Package each platform separately before publishing any release assets.
+# Archive each downloaded platform artifact separately for release distribution.
+release_assets_dir="tmp/release-assets"
 rm -rf "$release_assets_dir"
 mkdir -p "$release_assets_dir"
 
@@ -44,10 +49,9 @@ for artifact_directory in "${artifact_directories[@]}"; do
     chmod a+x "$artifact_directory/principe"
   fi
 
-  # An absolute destination supports arbitrary artifact-directory depths.
   (
     cd "$artifact_directory"
-    zip -q -r "$release_assets_dir/$asset_name" .
+    zip -q -r "../../$release_assets_dir/$asset_name" .
   )
 done
 
@@ -58,7 +62,7 @@ if [[ ${#release_assets[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Existing releases receive replacement assets; new releases require the version tag.
+# Reruns replace uploaded assets without creating a second release for the same tag.
 if gh release view "$tag" >/dev/null 2>&1; then
   gh release upload "$tag" "${release_assets[@]}" --clobber
 else
