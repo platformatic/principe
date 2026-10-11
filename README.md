@@ -165,7 +165,7 @@ not rejected. The defaults are:
       "scaling": 3,
       "zlib": true,
       "aspectRatio": null,
-      "fixIndexing": false
+      "fixIndexing": true
     },
     "ui": { "showStatus": true, "protocolTimeoutMs": 2000 },
     "audio": {
@@ -224,11 +224,23 @@ Unsupported option names/values are rejected during core initialization.
 | `scaling`     | Maximum integer source pre-scaling, 1–8, default 3. Uses nearest-neighbor.                                                |
 | `zlib`        | Native OpenTUI upload compression, default true; false selects raw transport.                                             |
 | `aspectRatio` | Display width/height override, 0.1–10; null uses the core's display aspect.                                               |
-| `fixIndexing` | Rewrite Kitty placement z-index to -1, above cell backgrounds and below text. Default false; enable for cmux when needed. |
+| `fixIndexing` | Correct image layering for Kitty graphics, default true. See below for details. |
 
 Changing source scaling does not shrink the displayed viewport. The terminal may
 still interpolate the uploaded image to fill its placement. Larger source scales
 improve sharpness but cost more CPU, memory and transfer bandwidth.
+
+`options.video.fixIndexing` controls how game images are layered relative to the
+terminal's cell backgrounds and text. When enabled, it rewrites the Kitty image
+placement z-index to `-1`: game images appear above cell backgrounds but below
+text. This avoids images being hidden behind cell backgrounds in terminals such
+as cmux, while keeping text overlays visible.
+
+The option changes only image layering, not game pixels, scaling, colors or
+compression. It is enabled by default; set it to `false` to leave OpenTUI's
+original image layering unchanged, for example when troubleshooting rendering
+differences in your terminal. It does not add Kitty graphics support to terminals
+that lack it.
 
 The display preserves the core's aspect ratio and adapts to terminal resize or
 font changes. A terminal that does not respond to graphics or pixel-size queries

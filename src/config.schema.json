@@ -48,7 +48,7 @@
             "aspectRatio": { "type": ["number", "null"], "minimum": 0.1, "maximum": 10, "default": null },
             "fixIndexing": {
               "type": "boolean",
-              "default": false,
+              "default": true,
               "description": "Rewrite native Kitty placement z-index to -1, above cell backgrounds and below text."
             }
           }
