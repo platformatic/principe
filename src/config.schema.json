@@ -81,6 +81,24 @@
             "maxRateCorrection": { "type": "number", "minimum": 0, "maximum": 0.02, "default": 0.005 }
           }
         },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "properties": {
+            "mouse": {
+              "type": "boolean",
+              "default": true,
+              "description": "Forward terminal mouse reports to the core as libretro mouse and pointer devices."
+            },
+            "mouseSensitivity": { "type": "number", "minimum": 0.1, "maximum": 10, "default": 1 },
+            "mouseHoming": {
+              "type": "boolean",
+              "default": true,
+              "description": "When the pointer enters the game image, push a relative-only cursor into the top-left corner and then to the pointer."
+            }
+          }
+        },
         "save": {
           "type": "object",
           "additionalProperties": false,

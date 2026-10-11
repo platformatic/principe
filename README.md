@@ -176,6 +176,7 @@ not rejected. The defaults are:
       "maxLatencyMs": 200,
       "maxRateCorrection": 0.005
     },
+    "input": { "mouse": true, "mouseSensitivity": 1 },
     "save": { "initialSlot": 1, "module": null }
   },
   "bindings": {
@@ -278,6 +279,14 @@ Use the returned device **name**, not its temporary SDL ID. Configured queue lat
 excludes OS/hardware buffering. Audio pauses with gameplay and while saving/loading
 states; loading a state resets playback to the restored timeline.
 
+### Input options
+
+- `options.input.mouse`: forward terminal mouse reports to the core, default true.
+  See [Mouse](#mouse) below.
+- `options.input.mouseSensitivity`: multiplier for relative mouse motion, 0.1–10, default 1.
+- `options.input.mouseHoming`: align a relative-only game cursor with the pointer when it
+  enters the game image, default true. See [Mouse](#mouse) below.
+
 ### Save options
 
 - `options.save.initialSlot`: positive integer or a 1–64-character name containing
@@ -377,6 +386,38 @@ letters, digits, `_` or `-`. Chords are case-insensitive; action and modifier na
 are case-sensitive. Equivalent duplicate chords, unknown actions, invalid modifiers,
 legacy object bindings and null values raise `PRINCIPE_CONFIG`.
 The bindings schema only requires string values; semantic validation happens at runtime.
+
+### Mouse
+
+With `options.input.mouse` enabled, the session turns on SGR mouse reporting with
+motion tracking and forwards the terminal's mouse to the core as a libretro mouse
+(relative motion, left/middle/right buttons, two extra buttons and the vertical
+wheel) and as a libretro pointer (absolute position, pressed while the left button
+is held) on port 0. The pointer is mapped to game pixels through the displayed
+viewport; SGR-Pixels reports (mode 1016) are requested and used when the terminal
+confirms them, otherwise cell positions are used, with cell-sized granularity.
+Relative motion is measured in game pixels, scaled by `mouseSensitivity`, and only
+reaches the core after the first frame is displayed. Focus loss releases held mouse
+buttons. Whether a core reads the mouse, and which of the two devices it prefers,
+depends on the core and its options. Mouse reporting is not enabled by the input
+configuration modes.
+
+A cursor driven by relative motion only moves at the game's own rate, so it drifts
+away from the terminal pointer; `mouseSensitivity` is the knob to match the two.
+Such a game keeps a cursor position Principe cannot read, so with `mouseHoming` the
+session pushes it into the top-left corner with one large motion and moves it to
+the pointer a few frames later. This happens when the pointer enters the game image
+and on the first motion after a key press, a focus change or a change of the frame
+size, since games reset their cursor at such points; leaving and re-entering the
+image realigns them at any time.
+Turn it off for games that turn motion into something other than a clamped cursor,
+such as a first-person view or a spinner. Motion is dropped while the pointer is
+outside the image. DOSBox Pure applies relative motion only in its default mouse
+mode; with its core option `"dosbox_pure_mouse_input": "direct"` it also sets the
+DOS cursor from the libretro pointer, so programs that read the mouse position stay
+under the terminal pointer. Games that read the motion counters instead, such as
+the SCUMM games, ignore the position; they move half a pixel per count, so
+`"mouseSensitivity": 2` makes them follow the pointer.
 
 ## Saves
 

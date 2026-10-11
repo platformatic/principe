@@ -194,12 +194,14 @@ export class KittyInput {
   #callbacks
   #held = new Map()
   #buttons = new Map()
+  #mouseButtons = new Set()
+  #mousePosition = null
   #focused = true
   #paste = false
   #timer
   #supported = false
   #closed = false
-  #stats = { presses: 0, repeats: 0, releases: 0 }
+  #stats = { presses: 0, repeats: 0, releases: 0, mouseEvents: 0 }
 
   constructor (bindings, callbacks) {
     this.#bindings = compileBindings(bindings)
@@ -322,6 +324,17 @@ export class KittyInput {
       }
 
       this.#callbacks.onFocus(this.#focused)
+      return true
+    }
+
+    // SGR mouse reports: CSI < code ; x ; y followed by M (press, motion, wheel) or m (release).
+    if (body[0] === '<' && (final === 'M' || final === 'm')) {
+      const fields = body.slice(1).split(';').map(Number)
+
+      if (fields.length === 3 && fields.every(value => Number.isInteger(value) && value >= 0)) {
+        this.#mouse(fields[0], fields[1], fields[2], final === 'M')
+      }
+
       return true
     }
 
@@ -450,6 +463,40 @@ export class KittyInput {
     this.#callbacks.onAction(binding, true)
   }
 
+  #mouse (code, x, y, press) {
+    if (!this.#focused) {
+      return
+    }
+
+    this.#stats.mouseEvents++
+    this.#mousePosition = { x, y }
+    const event = { x, y, button: null, pressed: false, wheel: 0 }
+    const low = code & 3
+
+    if (code & 64) {
+      // Codes 64 and 65 are vertical wheel steps; horizontal steps are not forwarded.
+      if (low < 2) {
+        event.wheel = low === 0 ? 1 : -1
+      }
+    } else if (!(code & 32) && low !== 3) {
+      // Buttons 0-2 are left, middle and right; bit 128 selects the extra buttons 4 and 5.
+      if (code & 128 && low > 1) {
+        return
+      }
+
+      event.button = code & 128 ? 3 + low : low
+      event.pressed = press
+
+      if (press) {
+        this.#mouseButtons.add(event.button)
+      } else {
+        this.#mouseButtons.delete(event.button)
+      }
+    }
+
+    this.#callbacks.onMouse?.(event)
+  }
+
   releaseAll () {
     for (const [button, count] of this.#buttons) {
       if (count > 0) {
@@ -459,6 +506,13 @@ export class KittyInput {
 
     this.#buttons.clear()
     this.#held.clear()
+
+    // The terminal reports no releases after focus loss, so release held mouse buttons here.
+    for (const button of this.#mouseButtons) {
+      this.#callbacks.onMouse?.({ ...(this.#mousePosition ?? { x: null, y: null }), button, pressed: false, wheel: 0 })
+    }
+
+    this.#mouseButtons.clear()
   }
 
   summary () {
