@@ -1,4 +1,4 @@
-import { dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
+import { DynamicLibrary, dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
 import { endianness } from 'node:os'
 import { NativeError, ConfigError, PersistenceError, StateError } from './errors.js'
 import { randomUUID, createHash } from 'node:crypto'
@@ -100,6 +100,25 @@ export function readAV (buffer) {
   return { ...readGeometry(buffer), fps: buffer.readDoubleLE(24), sampleRate: buffer.readDoubleLE(32) }
 }
 
+let sink
+
+function logSink () {
+  // Some cores crash without a log interface, and some call it from their own threads,
+  // where JavaScript callbacks cannot run. The advertised sink is therefore a native
+  // function that ignores its arguments: under the SysV and AAPCS64 calling conventions
+  // a parameterless function is a valid target for a variadic call. getpagesize() has
+  // no side effects, so core logs are discarded.
+  if (sink === undefined) {
+    try {
+      sink = new DynamicLibrary(null).getSymbol('getpagesize')
+    } catch {
+      sink = null
+    }
+  }
+
+  return sink
+}
+
 export class Environment {
   pixelFormat = 0
   shutdown = false
@@ -110,9 +129,11 @@ export class Environment {
   #configured
   #strings = new Map()
   #paths
+  #log
 
-  constructor (config) {
+  constructor (config, log = null) {
     this.#configured = config.options.core
+    this.#log = log
 
     // These command IDs ask for system files, the loaded core and the save directory.
     this.#paths = new Map([
@@ -217,6 +238,13 @@ export class Environment {
         return 1
       case 24: // GET_INPUT_DEVICE_CAPABILITIES: joypad only.
         memory(pointer, 8).writeBigUInt64LE(2n)
+        return 1
+      case 27: // GET_LOG_INTERFACE
+        if (!this.#log) {
+          return 0
+        }
+
+        memory(pointer, 8).writeBigUInt64LE(BigInt(this.#log))
         return 1
       case 32: // SET_SYSTEM_AV_INFO
         this.av = readAV(memory(pointer, 40))
@@ -430,7 +458,7 @@ export class Core {
       }
 
       // Install all frontend callbacks before initialization can invoke them.
-      core.environment = new Environment(config)
+      core.environment = new Environment(config, logSink())
       core.#register('environment', ['uint32', 'pointer'], 'bool', (command, pointer) =>
         core.environment.handle(command, pointer))
       core.#register('video_refresh', ['pointer', 'uint32', 'uint32', 'uint64'], 'void', (...args) =>
