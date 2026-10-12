@@ -236,8 +236,8 @@ export class Environment {
       case 17: // GET_VARIABLE_UPDATE: options are immutable during a session.
         memory(pointer, 1)[0] = 0
         return 1
-      case 24: // GET_INPUT_DEVICE_CAPABILITIES: joypad only.
-        memory(pointer, 8).writeBigUInt64LE(2n)
+      case 24: // GET_INPUT_DEVICE_CAPABILITIES: joypad, mouse and pointer.
+        memory(pointer, 8).writeBigUInt64LE(BigInt((1 << 1) | (1 << 2) | (1 << 6)))
         return 1
       case 27: // GET_LOG_INTERFACE
         if (!this.#log) {
@@ -403,6 +403,47 @@ export class BatteryStorage {
 
 let active = false
 
+// RETRO_DEVICE_MOUSE button ids for the frontend's left, middle, right, 4 and 5 buttons.
+const mouseButtonIds = [2, 6, 3, 9, 10]
+
+function clampInt16 (value) {
+  return Math.max(-32768, Math.min(32767, value))
+}
+
+function mouseState (snapshot, id) {
+  // RETRO_DEVICE_MOUSE ids: 0 X, 1 Y, 4 WHEELUP, 5 WHEELDOWN; the rest are buttons.
+  switch (id) {
+    case 0:
+      return clampInt16(snapshot.x)
+    case 1:
+      return clampInt16(snapshot.y)
+    case 4:
+      return snapshot.wheel > 0 ? 1 : 0
+    case 5:
+      return snapshot.wheel < 0 ? 1 : 0
+    default: {
+      const button = mouseButtonIds.indexOf(id)
+      return button < 0 ? 0 : (snapshot.buttons >> button) & 1
+    }
+  }
+}
+
+function pointerState (pointer, buttons, id) {
+  // RETRO_DEVICE_POINTER ids: 0 X, 1 Y, 2 PRESSED, 3 COUNT. Pressed follows the left button.
+  switch (id) {
+    case 0:
+      return pointer.x
+    case 1:
+      return pointer.y
+    case 2:
+      return pointer.count && buttons & 1 ? 1 : 0
+    case 3:
+      return pointer.count
+    default:
+      return 0
+  }
+}
+
 export class Core {
   environment
   info
@@ -419,6 +460,9 @@ export class Core {
   #retained = []
   #buttons = 0
   #snapshot = 0
+  #mouse = { x: 0, y: 0, buttons: 0, wheel: 0 }
+  #mouseSnapshot = { x: 0, y: 0, buttons: 0, wheel: 0 }
+  #pointer = { x: 0, y: 0, count: 0 }
   #closed = false
   #audioSink
   #singleAudio = Buffer.alloc(4096)
@@ -506,17 +550,38 @@ export class Core {
       // Hold one joypad snapshot for every input query within the core's poll cycle.
       core.#register('input_poll', [], 'void', () => {
         core.#snapshot = core.#buttons
+
+        // Motion and wheel steps are consumed by the poll that reports them; fractions carry over.
+        const mouse = core.#mouse
+        const x = Math.trunc(mouse.x)
+        const y = Math.trunc(mouse.y)
+        core.#mouseSnapshot = { x, y, buttons: mouse.buttons, wheel: mouse.wheel }
+        mouse.x -= x
+        mouse.y -= y
+        mouse.wheel = 0
       })
       core.#register('input_state', ['uint32', 'uint32', 'uint32', 'uint32'], 'int16', (port, device, index, id) => {
-        if (port !== 0 || device !== 1 || index !== 0) {
+        if (port !== 0 || index !== 0) {
           return 0
         }
 
-        if (id === 256) {
-          return (core.#snapshot << 16) >> 16
+        if (device === 1) {
+          if (id === 256) {
+            return (core.#snapshot << 16) >> 16
+          }
+
+          return id < 16 ? (core.#snapshot >> id) & 1 : 0
         }
 
-        return id < 16 ? (core.#snapshot >> id) & 1 : 0
+        if (device === 2) {
+          return mouseState(core.#mouseSnapshot, id)
+        }
+
+        if (device === 6) {
+          return pointerState(core.#pointer, core.#mouseSnapshot.buttons, id)
+        }
+
+        return 0
       })
 
       // Mark initialization before calling C so failures still take the matching teardown path.
@@ -658,6 +723,39 @@ export class Core {
     }
 
     this.#buttons = mask
+  }
+
+  setMouse ({ x = 0, y = 0, wheel = 0 } = {}) {
+    this.#ready()
+
+    if (![x, y, wheel].every(Number.isFinite)) {
+      throw new StateError('mouse motion must be finite')
+    }
+
+    this.#mouse.x += x
+    this.#mouse.y += y
+    this.#mouse.wheel += wheel
+  }
+
+  setMouseButton (button, pressed) {
+    this.#ready()
+
+    if (!Number.isInteger(button) || button < 0 || button >= mouseButtonIds.length) {
+      throw new StateError('mouse button must be 0 (left), 1 (middle), 2 (right), 3 or 4')
+    }
+
+    const bit = 1 << button
+    this.#mouse.buttons = pressed ? this.#mouse.buttons | bit : this.#mouse.buttons & ~bit
+  }
+
+  setPointer (x, y, inside) {
+    this.#ready()
+
+    if (![x, y].every(value => Number.isInteger(value) && value >= -32767 && value <= 32767)) {
+      throw new StateError('pointer coordinates must be integers between -32767 and 32767')
+    }
+
+    this.#pointer = { x, y, count: inside ? 1 : 0 }
   }
 
   setAudioSink (sink) {
@@ -878,6 +976,13 @@ class Session {
   #stopped = false
   #mask = 0
   #taps = 0
+  #mouseEnabled
+  #mouseSensitivity
+  #mouseHoming
+  #mouseLast = null
+  #homing = null
+  #homingDue = true
+  #mouseGeometry = ''
   #renderer
   #input
   #inputFailure
@@ -898,18 +1003,28 @@ class Session {
     }
 
     this.selectSlot(config.options.save.initialSlot)
+    this.#mouseEnabled = Boolean(config.options.input.mouse)
+    this.#mouseSensitivity = config.options.input.mouseSensitivity
+    this.#mouseHoming = Boolean(config.options.input.mouseHoming)
+
+    if (!Number.isFinite(this.#mouseSensitivity) || this.#mouseSensitivity < 0.1 || this.#mouseSensitivity > 10) {
+      throw new ConfigError('options.input.mouseSensitivity must be a number between 0.1 and 10')
+    }
 
     this.#status = 'Waiting for Kitty keyboard'
 
     // Keyboard events and native terminal replies must use the same incremental parser.
     this.#input = new KittyInput(config.bindings, {
       onAction: (binding, pressed) => this.#handleKey(binding, pressed),
+      onMouse: event => this.#handleMouse(event),
       onResponse: data => this.#renderer.processResponse(data),
       onFocus: focused => {
         if (!focused) {
           this.#taps = 0
         }
 
+        // A focus change may hide a game state change; realign the mouse on the next motion.
+        this.#homingDue = true
         this.#status = focused ? 'Focused' : 'Focus lost; buttons released'
       },
       onError: error => {
@@ -920,7 +1035,7 @@ class Session {
 
     try {
       this.#renderer = new OpenTUI(
-        { ...config.options.video, ...config.options.ui, path: config.paths.video },
+        { ...config.options.video, ...config.options.ui, mouse: this.#mouseEnabled, path: config.paths.video },
         {
           onData: data => this.#input.feed(data),
           onError: error => {
@@ -942,6 +1057,11 @@ class Session {
   }
 
   async #handleKey (binding, pressed) {
+    // Key presses tend to change game state (menus, skipped cutscenes); realign the mouse after them.
+    if (pressed) {
+      this.#homingDue = true
+    }
+
     try {
       const persistence = binding.action === 'saveState' || binding.action === 'loadState'
       const slot = binding.slot ?? this.#slot
@@ -973,6 +1093,77 @@ class Session {
       // Async shortcut errors belong to the action, not the stdin EventEmitter.
       // Keep the game running and show the stable error code in the status row.
       this.#status = `${error.code ?? 'PRINCIPE_INPUT'}: ${error.message}`
+    }
+  }
+
+  #handleMouse (event) {
+    if (!this.#mouseEnabled) {
+      return
+    }
+
+    try {
+      // A release after focus loss carries no position; reuse the last one.
+      const position = event.x === null ? this.#mouseLast : this.#renderer.locate(event.x, event.y)
+      const frame = this.#core.frame
+
+      // A new video mode means a new program or driver state, which resets game cursors. The
+      // last position is in the old frame's pixels, so it cannot serve as a motion baseline.
+      if (frame && `${frame.width}x${frame.height}` !== this.#mouseGeometry) {
+        this.#mouseGeometry = `${frame.width}x${frame.height}`
+        this.#homingDue = true
+        this.#mouseLast = null
+      }
+
+      if (this.#mouseHoming && frame && position?.inside && (this.#homingDue || !this.#mouseLast?.inside)) {
+        // Games that only read relative motion keep a cursor Principe cannot see. Push it into
+        // the top-left corner, where games clamp it, and move it to the pointer a few frames
+        // later: a single poll would merge both motions.
+        this.#core.setMouse({
+          x: -4 * frame.width * this.#mouseSensitivity,
+          y: -4 * frame.height * this.#mouseSensitivity,
+          wheel: event.wheel
+        })
+        this.#homing = { frames: 8 }
+        this.#homingDue = false
+      } else if (position && this.#mouseLast && !this.#homing) {
+        // Cores read relative motion in frame pixels; the pointer device gets the absolute position.
+        this.#core.setMouse({
+          x: (position.x - this.#mouseLast.x) * this.#mouseSensitivity,
+          y: (position.y - this.#mouseLast.y) * this.#mouseSensitivity,
+          wheel: event.wheel
+        })
+      } else if (event.wheel) {
+        this.#core.setMouse({ wheel: event.wheel })
+      }
+
+      if (event.button !== null) {
+        this.#core.setMouseButton(event.button, event.pressed)
+      }
+
+      if (position && frame) {
+        this.#mouseLast = position
+        this.#core.setPointer(
+          Math.round(((position.x + 0.5) / frame.width) * 65534 - 32767),
+          Math.round(((position.y + 0.5) / frame.height) * 65534 - 32767),
+          position.inside
+        )
+      }
+    } catch (error) {
+      this.#status = `${error.code ?? 'PRINCIPE_INPUT'}: ${error.message}`
+    }
+  }
+
+  #finishHoming () {
+    // The game cursor sits in the top-left corner now; the pointer may have moved meanwhile.
+    this.#homing = null
+    const position = this.#mouseLast
+
+    if (position) {
+      try {
+        this.#core.setMouse({ x: position.x * this.#mouseSensitivity, y: position.y * this.#mouseSensitivity })
+      } catch (error) {
+        this.#status = `${error.code ?? 'PRINCIPE_INPUT'}: ${error.message}`
+      }
     }
   }
 
@@ -1227,6 +1418,10 @@ class Session {
 
         this.#taps = 0
         i++
+
+        if (this.#homing && --this.#homing.frames === 0) {
+          this.#finishHoming()
+        }
 
         // Presentation can be skipped independently of emulation when audio is running low.
         if (!audioState || audioState.allowVideo) {

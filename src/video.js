@@ -153,7 +153,9 @@ const signatures = {
   imageCreateFromRgba: { arguments: ['pointer', 'uint64', 'uint32', 'uint32', 'uint32', 'pointer'], return: 'uint32' },
   imageDestroy: { arguments: ['uint32'], return: 'void' },
   bufferDrawImage: { arguments: ['uint32', 'uint32', 'pointer'], return: 'uint8' },
-  render: { arguments: ['uint32', 'bool'], return: 'uint8' }
+  render: { arguments: ['uint32', 'bool'], return: 'uint8' },
+  enableMouse: { arguments: ['uint32', 'bool'], return: 'void' },
+  disableMouse: { arguments: ['uint32'], return: 'void' }
 }
 
 export class OpenTUI {
@@ -187,8 +189,12 @@ export class OpenTUI {
   #pixelHeight = 0
   #pixelDeadline = Infinity
   #kittySupported = false
+  #mouse = false
+  #pixelMouse = false
+  #frameWidth = 0
+  #frameHeight = 0
   #closed = false
-  #stats = { presented: 0, skipped: 0, resizes: 0, columns: 0, rows: 0, viewport: null }
+  #stats = { presented: 0, skipped: 0, resizes: 0, columns: 0, rows: 0, viewport: null, mouse: 'off' }
 
   constructor (options, callbacks) {
     if (!process.stdout.isTTY || !process.stdin.isTTY) {
@@ -242,6 +248,15 @@ export class OpenTUI {
       this.#call('setupTerminal', this.#renderer, 1)
       this.#call('queryPixelResolution', this.#renderer)
       this.#pixelDeadline = performance.now() + options.protocolTimeoutMs
+
+      if (options.mouse) {
+        // OpenTUI enables SGR cell reports with motion. Request pixel reports on top and
+        // ask the terminal whether it accepted them: both report formats look the same.
+        this.#call('enableMouse', this.#renderer, 1)
+        writeSync(process.stdout.fd, '\x1b[?1016h\x1b[?1016$p')
+        this.#mouse = true
+        this.#stats.mouse = 'cells'
+      }
     } catch (error) {
       this.close()
       throw new VideoError(error.message, { cause: error })
@@ -323,6 +338,11 @@ export class OpenTUI {
 
     if (this.#closed) {
       throw new VideoError('renderer is closed')
+    }
+
+    if (frame) {
+      this.#frameWidth = frame.width
+      this.#frameHeight = frame.height
     }
 
     if (this.#resized && !this.#resize()) {
@@ -500,6 +520,28 @@ export class OpenTUI {
     this.#status = text
   }
 
+  locate (x, y) {
+    // Map a 1-based terminal report, in cells or in pixels under SGR-Pixels, to frame pixels.
+    const viewport = this.#stats.viewport
+
+    if (!viewport || !this.#frameWidth || !this.#columns || !this.#rows || !this.#pixelWidth) {
+      return null
+    }
+
+    const cellWidth = this.#pixelWidth / this.#columns
+    const cellHeight = this.#pixelHeight / this.#rows
+    const px = this.#pixelMouse ? x - 0.5 : (x - 0.5) * cellWidth
+    const py = this.#pixelMouse ? y - 0.5 : (y - 0.5) * cellHeight
+    const fx = (px - viewport.x * cellWidth) / (viewport.width * cellWidth)
+    const fy = (py - viewport.y * cellHeight) / (viewport.height * cellHeight)
+
+    return {
+      x: Math.min(this.#frameWidth - 1, Math.max(0, Math.floor(fx * this.#frameWidth))),
+      y: Math.min(this.#frameHeight - 1, Math.max(0, Math.floor(fy * this.#frameHeight))),
+      inside: fx >= 0 && fx < 1 && fy >= 0 && fy < 1
+    }
+  }
+
   setInfo (text) {
     this.#info = text
   }
@@ -546,6 +588,15 @@ export class OpenTUI {
       }
     }
 
+    // DECRQM reply for SGR-Pixels mouse reports: 1 and 3 mean the terminal set the mode.
+    // eslint-disable-next-line no-control-regex
+    const pixelMouse = /^\x1b\[\?1016;(\d)\$y$/.exec(text)
+
+    if (pixelMouse && this.#mouse) {
+      this.#pixelMouse = pixelMouse[1] === '1' || pixelMouse[1] === '3'
+      this.#stats.mouse = this.#pixelMouse ? 'pixels' : 'cells'
+    }
+
     // OpenTUI still owns all capability handling beyond the frontend's readiness checks.
     this.#call('processCapabilityResponse', this.#renderer, data, data.length)
   }
@@ -561,6 +612,13 @@ export class OpenTUI {
 
     // Release native rendering resources before restoring the terminal and closing the library.
     try {
+      if (this.#renderer && this.#mouse) {
+        // Stop mouse reports before the renderer leaves the alternate screen.
+        this.#mouse = false
+        writeSync(process.stdout.fd, '\x1b[?1016l')
+        this.#call('disableMouse', this.#renderer)
+      }
+
       if (this.#renderer) {
         this.#call('destroyRenderer', this.#renderer, 1)
         this.#renderer = 0

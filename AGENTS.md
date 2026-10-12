@@ -46,6 +46,18 @@ tmp/                  # Generated staging directories
 - Validate action names, joypad identifiers, slot modifiers and duplicate canonical
   chords at runtime. The bindings schema only constrains values to strings and must
   not enumerate platform-dependent keyboard keys.
+- Mouse input (`options.input`) is independent of bindings. `KittyInput` parses SGR
+  reports (`CSI < code ; x ; y M|m`) into `onMouse` events with 1-based terminal
+  coordinates; the session maps them to frame pixels through `OpenTUI.locate()` and
+  feeds `Core.setMouse()`, `setMouseButton()` and `setPointer()`. Motion is relative in
+  frame pixels and consumed per `input_poll`; the pointer is absolute. With
+  `mouseHoming`, the session sends a large negative motion and, eight frames later,
+  the pointer position as motion, so that relative-only game cursors align with the
+  pointer; the two steps must land in separate polls. It runs when the pointer enters
+  the image and on the first motion after a key press, a focus change or a frame size
+  change (games reset their cursor when they initialise the mouse). OpenTUI's
+  `enableMouse` owns modes 1000-1006; the session adds SGR-Pixels (1016) and detects
+  acceptance through a DECRQM reply, since both report formats are indistinguishable.
 - `paths.core` is required for gameplay. Never restore an implicit core fallback,
   automatic installation download or bundled core asset.
 - Audio listing bypasses configuration entirely. Input modes read bindings only;
@@ -80,6 +92,8 @@ tmp/                  # Generated staging directories
 - The native profile uses synchronous same-thread callbacks, software video
   (`0RGB1555`, `RGB565`, `XRGB8888`) and stereo PCM. Hardware rendering, async core
   audio, variadic logging and VFS are not advertised. Snes9x is the only verified core.
+- Input device capabilities advertise joypad, mouse and pointer. `input_state` answers
+  port 0 only: joypad (1), mouse (2) and pointer (6). Other ports and devices read 0.
 
 ## Rendering and audio invariants
 

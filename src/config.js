@@ -45,6 +45,7 @@ export const defaultConfig = {
     video: { maxFps: 60, scaling: 3, zlib: true, aspectRatio: null, fixIndexing: true },
     ui: { showStatus: true, protocolTimeoutMs: 2000 },
     audio: { enabled: true, device: null, volume: 1, latencyMs: 80, maxLatencyMs: 200, maxRateCorrection: 0.005 },
+    input: { mouse: true, mouseSensitivity: 1, mouseHoming: true },
     save: { initialSlot: 1, module: null }
   },
   bindings: defaultBindings
