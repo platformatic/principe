@@ -29,17 +29,33 @@ pnpm start "/path/to/game.sfc" -c play/principe.json
 With the standalone executable, no Node.js installation is required:
 
 ```sh
-principe -b                   # List recognized core IDs; currently only snes9x
+principe -b                   # List recognized core IDs: snes9x and dosbox
 principe -b snes9x            # Download the core, configure keys, then save principe.json
+principe -b dosbox -c play/principe.json # Download DOSBox Pure and configure keys
 principe "/path/to/game.sfc"
 ```
 
 Bootstrap accepts zero or one positional core ID and respects `-c`/`--config`.
 The config destination's parent directory is `$ROOT`, regardless of the current
 working directory. With a core ID, bootstrap downloads the matching host binary to
-`$ROOT/cores/snes9x_libretro.dylib` on macOS or `.so` on Linux, creates `$ROOT/saves`,
+`$ROOT/cores/<core>_libretro.dylib` on macOS or `.so` on Linux, creates `$ROOT/saves`,
 runs interactive keyboard setup, and writes the config only after setup completes.
+Add `-n` or `--no-input` to skip keyboard setup and use the default bindings,
+including when replacing an existing config. Bootstrap still asks `Enable mouse support? [y/N]`
+after keyboard setup (or after download with `-n`). Without an interactive terminal,
+it skips the question and leaves mouse support disabled:
+
+```sh
+principe -b dosbox --no-input -c play/principe.json
+```
+
 Core and save paths are stored relative to the configuration directory.
+
+Cores recognized by bootstrap by default:
+
+- `snes9x`: [Snes9x](https://github.com/libretro/snes9x), library `snes9x_libretro`.
+- `dosbox`: [DOSBox Pure](https://github.com/schellingb/dosbox-pure), library `dosbox_pure_libretro`.
+
 The config directory is created if necessary. Bootstrap always downloads the core
 again, atomically replaces the existing core, and completely replaces an existing
 config after keyboard setup. It creates `saves` if necessary but never empties or
@@ -47,7 +63,7 @@ deletes it or its contents. Stop running gameplay sessions before replacing a co
 Listing recognized IDs needs no config, network,
 terminal or filesystem writes.
 
-Ctrl+C or Ctrl+D during keyboard setup cancels without creating or replacing the
+Ctrl+C or Ctrl+D during keyboard setup or mouse selection cancels without creating or replacing the
 config. The downloaded core remains and existing saves are preserved. Bootstrap
 can be rerun in the same directory. The download uses the Libretro
 buildbot's unpinned `latest` nightly, as the previous dependency preparation did.
@@ -73,11 +89,13 @@ Available options:
 | `-c` | `--config` | JSON path | Select the config for gameplay or input; select the destination for bootstrap. Ignored by audio listing. |
 | `-a` | `--audio` | None | List audio playback devices without a ROM, core or configuration. |
 | `-i` | `--input` | None | Capture keyboard bindings and update an existing config. No ROM or core required. |
+| `-n` | `--no-input` | None | Skip bootstrap keyboard setup and write the default bindings. Requires bootstrap. |
 | `-p` | `--probe` | None | With input mode, display recognized shortcuts and assigned actions without writing the config. |
 | `-b` | `--bootstrap` | Optional positional core ID | Without an ID, list recognized cores. With an ID, download the core and create or replace a config after keyboard setup. |
 
 Audio, input and bootstrap modes are mutually exclusive. Probe requires input
-mode. Boolean aliases can be combined: `-ip` is equivalent to `--input --probe`.
+mode. Boolean aliases can be combined: `-ip` is equivalent to `--input --probe`,
+and `-bn` skips bootstrap keyboard setup.
 Gameplay accepts exactly one positional ROM; bootstrap accepts at most one
 positional core ID. For example:
 
@@ -152,7 +170,7 @@ not rejected. The defaults are:
   "$schema": "./src/config.schema.json",
   "version": 1,
   "paths": {
-    "system": "./data/system",
+    "system": "system",
     "core": null,
     "video": null,
     "audio": null,
@@ -176,7 +194,7 @@ not rejected. The defaults are:
       "maxLatencyMs": 200,
       "maxRateCorrection": 0.005
     },
-    "input": { "mouse": true, "mouseSensitivity": 1 },
+    "input": { "mouse": false, "mouseSensitivity": 2, "mouseHoming": true },
     "save": { "initialSlot": 1, "module": null }
   },
   "bindings": {
@@ -190,8 +208,13 @@ not rejected. The defaults are:
     "l": "joypad:a",
     "u": "joypad:l",
     "o": "joypad:r",
+    "y": "joypad:l2",
+    "p": "joypad:r2",
+    "g": "joypad:l3",
+    "t": "joypad:r3",
     "space": "joypad:start",
     "enter": "joypad:select",
+    "escape": "togglePause",
     "q": "loadState",
     "e": "saveState",
     "z": "previousSlot",
@@ -203,6 +226,8 @@ not rejected. The defaults are:
 The default `paths.core: null` is deliberately unusable: configure an external
 core path before starting a session. Omitting `bindings` selects the built-in
 bindings; a supplied map replaces them completely, and `bindings: {}` disables all bindings.
+Ctrl+C and Ctrl+D always quit gracefully, even with an empty binding map; assigning
+either chord in the configuration raises `PRINCIPE_CONFIG`.
 
 ### Paths
 
@@ -281,9 +306,9 @@ states; loading a state resets playback to the restored timeline.
 
 ### Input options
 
-- `options.input.mouse`: forward terminal mouse reports to the core, default true.
+- `options.input.mouse`: forward terminal mouse reports to the core, default false.
   See [Mouse](#mouse) below.
-- `options.input.mouseSensitivity`: multiplier for relative mouse motion, 0.1–10, default 1.
+- `options.input.mouseSensitivity`: multiplier for relative mouse motion, 0.1–10, default 2.
 - `options.input.mouseHoming`: align a relative-only game cursor with the pointer when it
   enters the game image, default true. See [Mouse](#mouse) below.
 
@@ -308,7 +333,7 @@ pnpm start --input -c principe.json
 ```
 
 Both modes require a Kitty-keyboard-compatible interactive terminal, but no core,
-ROM, video renderer or audio initialization. They read only bindings from the selected
+ROM, video renderer or audio initialization. They read bindings and input settings from the selected
 configuration (`principe.json` by default). Probe can use defaults if the implicit
 configuration is absent; an explicit missing or malformed configuration is an error.
 Probe prints recognized chords and corresponding actions without modifying anything;
@@ -326,8 +351,11 @@ Modifier keys alone are not captured, so combinations such as Ctrl+Q work.
 Ctrl+C and Ctrl+D are reserved for cancellation, including before Kitty negotiation;
 neither can be assigned by the wizard. SIGINT/SIGTERM also cancels without saving.
 
-Only the bindings are updated, after all prompts finish; other JSON fields are
-preserved. The wizard writes a complete string map, retaining skipped associations
+After keyboard capture, `Enable mouse support? [y/N]` selects mouse support; Enter
+leaves it disabled. Ctrl+C or Ctrl+D cancels the question without saving either change.
+Bindings and `options.input.mouse` are updated only after all prompts finish; other
+JSON fields, including existing mouse sensitivity and homing, are preserved.
+The wizard writes a complete string map, retaining skipped associations
 and omitting disabled or replaced keys instead of writing null entries.
 The file is replaced atomically, and changes detected during capture
 cause saving to fail rather than overwrite those edits.
@@ -346,11 +374,18 @@ cause saving to fail rather than overwrite those edits.
 | L         | A                          |
 | U         | L shoulder                 |
 | O         | R shoulder                 |
+| Y         | L2 trigger                 |
+| P         | R2 trigger                 |
+| G         | L3 stick press             |
+| T         | R3 stick press             |
+| Escape    | Pause/resume               |
+| Ctrl+C / Ctrl+D | Quit (reserved)      |
 | Q / E     | Load/save current slot     |
 | Z / X     | Previous/next numeric slot |
 
 `principe.json` can contain additional custom associations.
-No other shortcuts are enabled by default; configure `quit` or `togglePause` if needed.
+The defaults cover all 16 libretro joypad buttons. Ctrl+C and Ctrl+D always quit;
+additional quit shortcuts can be configured if needed.
 Joypad names are standard libretro identifiers, not keyboard keys or Snes9x-specific
 controls. Their meaning depends on the core. The schema does not enumerate keyboard keys.
 Press/repeat/release events are tracked incrementally; keys mapped to the same
@@ -367,7 +402,7 @@ with defaults and no null entries:
     "ctrl+shift+1": "saveState:checkpoint",
     "f2": "selectSlot:checkpoint",
     "backspace": "joypad:select",
-    "ctrl+c": "quit"
+    "ctrl+q": "quit"
   }
 }
 ```

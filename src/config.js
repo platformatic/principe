@@ -29,8 +29,13 @@ export const defaultBindings = {
   l: 'joypad:a',
   u: 'joypad:l',
   o: 'joypad:r',
+  y: 'joypad:l2',
+  p: 'joypad:r2',
+  g: 'joypad:l3',
+  t: 'joypad:r3',
   space: 'joypad:start',
   enter: 'joypad:select',
+  escape: 'togglePause',
   q: 'loadState',
   e: 'saveState',
   z: 'previousSlot',
@@ -39,13 +44,13 @@ export const defaultBindings = {
 
 export const defaultConfig = {
   version: 1,
-  paths: { system: './data/system', saves: 'saves', core: null, video: null, audio: null },
+  paths: { system: 'system', saves: 'saves', core: null, video: null, audio: null },
   options: {
     core: {},
     video: { maxFps: 60, scaling: 3, zlib: true, aspectRatio: null, fixIndexing: true },
     ui: { showStatus: true, protocolTimeoutMs: 2000 },
     audio: { enabled: true, device: null, volume: 1, latencyMs: 80, maxLatencyMs: 200, maxRateCorrection: 0.005 },
-    input: { mouse: true, mouseSensitivity: 1, mouseHoming: true },
+    input: { mouse: false, mouseSensitivity: 2, mouseHoming: true },
     save: { initialSlot: 1, module: null }
   },
   bindings: defaultBindings

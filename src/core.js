@@ -1015,6 +1015,7 @@ class Session {
 
     // Keyboard events and native terminal replies must use the same incremental parser.
     this.#input = new KittyInput(config.bindings, {
+      onInterrupt: () => this.stop(),
       onAction: (binding, pressed) => this.#handleKey(binding, pressed),
       onMouse: event => this.#handleMouse(event),
       onResponse: data => this.#renderer.processResponse(data),

@@ -60,18 +60,26 @@ tmp/                  # Generated staging directories
   acceptance through a DECRQM reply, since both report formats are indistinguishable.
 - `paths.core` is required for gameplay. Never restore an implicit core fallback,
   automatic installation download or bundled core asset.
-- Audio listing bypasses configuration entirely. Input modes read bindings only;
+- Audio listing bypasses configuration entirely. Input modes read bindings and input settings only;
   they must not require a core or initialize video/audio playback.
-- Bootstrap currently recognizes only `snes9x`. Derive its root from the selected
+- Bootstrap recognizes `snes9x` and `dosbox` (DOSBox Pure). Derive its root from the selected
   config destination, download the host-specific nightly into `cores`, create
   `saves`, capture input, then create or fully replace the config.
+- With bootstrap, `-n`/`--no-input` skips keyboard capture and writes default bindings.
+  Interactive bootstrap still asks whether to enable the mouse; without a TTY it
+  leaves the mouse disabled. The switch cannot be used outside bootstrap.
 - Bootstrap may redownload/replace the core and overwrite the config, but must
   never clear or delete saves. Cancellation preserves the existing config and
   saves; the downloaded core remains. Publish completed files atomically.
 - Input capture preserves skipped associations and other configuration fields.
   Write only after all prompts finish and reject detected concurrent config edits.
+- Capture ends with an English readline confirmation that updates `options.input.mouse`
+  only, preserving existing sensitivity and homing. Probe never prompts or writes.
+  Mouse defaults are `mouse: false`, `mouseSensitivity: 2`, `mouseHoming: true`.
 - Ctrl+C and Ctrl+D abort capture/probe, including before Kitty negotiation.
   Always restore terminal modes, remove listeners and clear timers on exit.
+- Ctrl+C and Ctrl+D are unbindable emergency quit chords during gameplay as well.
+- The default system directory is `system`, relative to the config.
 
 ## Native libraries and dependency preparation
 
