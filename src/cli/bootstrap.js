@@ -4,10 +4,13 @@ import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { defaultConfig } from '../config.js'
 import { ConfigError, DependencyError, InputError } from '../errors.js'
-import { captureInput } from './input.js'
+import { captureInput, selectMouse } from './input.js'
 
 const exec = promisify(execFile)
-const cores = { snes9x: { name: 'Snes9x', filename: 'snes9x_libretro' } }
+const cores = {
+  snes9x: { name: 'Snes9x', filename: 'snes9x_libretro', description: 'SNES; non-commercial license' },
+  dosbox: { name: 'DOSBox Pure', filename: 'dosbox_pure_libretro', description: 'DOS' }
+}
 const targets = {
   'darwin-arm64': 'apple/osx/arm64',
   'darwin-x64': 'apple/osx/x86_64',
@@ -15,10 +18,15 @@ const targets = {
   'linux-x64': 'linux/x86_64'
 }
 
-export async function bootstrap ({ core, config }) {
+export async function bootstrap ({ core, config, noInput = false }) {
   if (core === undefined) {
-    console.log('Recognized cores:\n  snes9x — Snes9x (SNES; non-commercial license)')
-    console.log('\nRun principe --bootstrap snes9x [-c PATH] to download the core and configure input.')
+    console.log('Recognized cores:')
+
+    for (const [id, { name, description }] of Object.entries(cores)) {
+      console.log(`  ${id} — ${name} (${description})`)
+    }
+
+    console.log('\nRun principe --bootstrap CORE [-c PATH] [-n | --no-input] to download and configure the core.')
     return
   }
 
@@ -39,7 +47,7 @@ export async function bootstrap ({ core, config }) {
   const directory = resolve(root, 'cores')
   const destination = resolve(directory, filename)
 
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!noInput && (!process.stdin.isTTY || !process.stdout.isTTY)) {
     throw new InputError('bootstrap requires an interactive terminal supporting Kitty keyboard')
   }
 
@@ -68,7 +76,7 @@ export async function bootstrap ({ core, config }) {
     })
 
     if (!binary.length) {
-      throw new DependencyError('Snes9x archive contains an empty library')
+      throw new DependencyError(`${cores[core].name} archive contains an empty library`)
     }
 
     const library = resolve(staging, filename)
@@ -82,9 +90,16 @@ export async function bootstrap ({ core, config }) {
     await mkdir(resolve(root, 'saves'), { recursive: true })
 
     // Cancellation leaves the previous config intact even though the core is already refreshed.
-    const bindings = await captureInput({ path })
+    const bindings = noInput ? structuredClone(defaultConfig.bindings) : await captureInput({ path })
 
     if (bindings === undefined) {
+      console.log('The downloaded core remains available; the configuration and existing saves were not changed.')
+      return
+    }
+
+    const mouse = await selectMouse()
+
+    if (mouse === undefined) {
       console.log('The downloaded core remains available; the configuration and existing saves were not changed.')
       return
     }
@@ -93,12 +108,13 @@ export async function bootstrap ({ core, config }) {
     const settings = structuredClone(defaultConfig)
     settings.paths.core = `./cores/${filename}`
     settings.paths.saves = 'saves'
+    settings.options.input.mouse = mouse
     settings.bindings = bindings
     const temporary = resolve(staging, 'principe.json')
     await writeFile(temporary, JSON.stringify(settings, null, 2) + '\n')
 
     try {
-      // Bootstrap replaces the whole configuration, but only after keyboard setup completes.
+      // Publish the complete configuration only after all input prompts finish.
       await rename(temporary, path)
     } catch (error) {
       throw new ConfigError(`cannot create configuration ${path}: ${error.message}`, { cause: error })

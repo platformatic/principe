@@ -157,6 +157,10 @@ export function compileBindings (bindings) {
 
     const canonical = chord(key, mask)
 
+    if (canonical === 'ctrl+c' || canonical === 'ctrl+d') {
+      throw new ConfigError(`${source} is reserved for quitting and cannot be bound`)
+    }
+
     if (result.has(canonical)) {
       throw new ConfigError(`duplicate keybinding ${source}`)
     }
@@ -241,17 +245,13 @@ export class KittyInput {
       }
 
       if (this.#buffer[0] !== 27) {
-        // CLI input modes must also recognize cancellation before Kitty negotiation.
-        if ([3, 4].includes(this.#buffer[0]) && this.#callbacks.onInterrupt) {
-          this.#callbacks.onInterrupt()
-          this.#buffer = this.#buffer.subarray(1)
-          continue
-        }
-
-        // Before negotiation, retain only the configured emergency quit chord.
-        // Unencoded text is never converted to held game buttons.
-        if (this.#buffer[0] === 3 && this.#bindings.get('ctrl+c')?.action === 'quit') {
-          this.#callbacks.onAction(this.#bindings.get('ctrl+c'), true)
+        // Emergency exit does not depend on bindings or keyboard negotiation.
+        if ([3, 4].includes(this.#buffer[0])) {
+          if (this.#callbacks.onInterrupt) {
+            this.#callbacks.onInterrupt()
+          } else {
+            this.#callbacks.onAction({ action: 'quit' }, true)
+          }
         }
 
         this.#buffer = this.#buffer.subarray(1)
@@ -375,6 +375,17 @@ export class KittyInput {
   }
 
   #event (key, base, shifted, mask, type) {
+    // Kitty can encode cancellation before its capability reply arrives.
+    if (type !== 3 && mask === 4 && [key, base].some(value => value === 'c' || value === 'd')) {
+      if (this.#callbacks.onInterrupt) {
+        this.#callbacks.onInterrupt()
+      } else {
+        this.#callbacks.onAction({ action: 'quit' }, true)
+      }
+
+      return
+    }
+
     if (!this.#supported || !this.#focused) {
       return
     }

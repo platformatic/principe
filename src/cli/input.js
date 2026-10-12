@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { open, readFile, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { defaultBindings } from '../config.js'
+import { createInterface } from 'node:readline/promises'
+import { defaultBindings, defaultConfig } from '../config.js'
 import { ConfigError, InputError } from '../errors.js'
 import { compileBindings, formatBinding, KittyInput } from '../input.js'
 
@@ -68,6 +69,47 @@ function keyLabel (key) {
     .join(' + ')
 }
 
+export async function selectMouse () {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    return false
+  }
+
+  const prompt = createInterface({ input: process.stdin, output: process.stdout })
+  const controller = new AbortController()
+  const cancel = () => controller.abort()
+  // Readline treats Ctrl+D after typed text as editing, but setup always reserves it for exit.
+  const onData = data => {
+    if (data.includes(3) || data.includes(4)) {
+      cancel()
+    }
+  }
+
+  prompt.on('SIGINT', cancel)
+  prompt.on('close', cancel)
+  process.stdin.prependListener('data', onData)
+  process.on('SIGINT', cancel)
+  process.on('SIGTERM', cancel)
+
+  try {
+    const answer = await prompt.question('Enable mouse support? [y/N] ', { signal: controller.signal })
+    return /^(?:y|yes)$/i.test(answer.trim())
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('\nSetup cancelled. No configuration changes were saved.')
+      return
+    }
+
+    throw new InputError(`cannot read mouse selection: ${error.message}`, { cause: error })
+  } finally {
+    process.stdin.off('data', onData)
+    process.off('SIGINT', cancel)
+    process.off('SIGTERM', cancel)
+    prompt.off('SIGINT', cancel)
+    prompt.off('close', cancel)
+    prompt.close()
+  }
+}
+
 export async function configureInput ({ config, probe = false }) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new InputError('--input requires an interactive terminal supporting Kitty keyboard')
@@ -108,6 +150,12 @@ export async function configureInput ({ config, probe = false }) {
     return
   }
 
+  const mouse = await selectMouse()
+
+  if (mouse === undefined) {
+    return
+  }
+
   let temporary
 
   try {
@@ -123,14 +171,16 @@ export async function configureInput ({ config, probe = false }) {
     temporary = candidate
 
     try {
-      await file.writeFile(JSON.stringify({ ...parsed, bindings: savedBindings }, null, 2) + '\n')
+      const input = { ...defaultConfig.options.input, ...parsed.options?.input, mouse }
+      const settings = { ...parsed, options: { ...parsed.options, input }, bindings: savedBindings }
+      await file.writeFile(JSON.stringify(settings, null, 2) + '\n')
     } finally {
       await file.close()
     }
 
     await rename(temporary, path)
     temporary = undefined
-    console.log(`\nKeyboard setup complete. Bindings saved to ${path}`)
+    console.log(`\nInput setup complete. Configuration saved to ${path}`)
   } catch (error) {
     throw error.code === 'PRINCIPE_CONFIG' ? error : new ConfigError(error.message, { cause: error })
   } finally {
@@ -175,12 +225,6 @@ export async function captureInput ({ path, bindings: sourceBindings = defaultBi
       stop()
     },
     onKey: (key, binding) => {
-      // Cancellation chords are reserved in both capture and probe modes.
-      if (key === 'ctrl+c' || key === 'ctrl+d') {
-        stop()
-        return
-      }
-
       if (interrupted) {
         return
       }

@@ -14,7 +14,7 @@
       "required": ["core"],
       "default": {},
       "properties": {
-        "system": { "type": "string", "minLength": 1, "default": "./data/system" },
+        "system": { "type": "string", "minLength": 1, "default": "system" },
         "saves": { "type": "string", "minLength": 1, "default": "saves" },
         "core": {
           "type": "string",
@@ -88,10 +88,10 @@
           "properties": {
             "mouse": {
               "type": "boolean",
-              "default": true,
+              "default": false,
               "description": "Forward terminal mouse reports to the core as libretro mouse and pointer devices."
             },
-            "mouseSensitivity": { "type": "number", "minimum": 0.1, "maximum": 10, "default": 1 },
+            "mouseSensitivity": { "type": "number", "minimum": 0.1, "maximum": 10, "default": 2 },
             "mouseHoming": {
               "type": "boolean",
               "default": true,
@@ -113,7 +113,7 @@
     "bindings": {
       "type": "object",
       "propertyNames": { "minLength": 1 },
-      "description": "Complete keyboard chord map using action[:modifier] strings. Omit bindings for defaults; an empty map disables all bindings. Keys are not restricted to a platform-specific list. Actions and modifiers are validated at runtime.",
+      "description": "Complete keyboard chord map using action[:modifier] strings. Omit bindings for defaults; an empty map disables all bindings. Ctrl+C and Ctrl+D are reserved for quitting and cannot be bound. Keys are not restricted to a platform-specific list. Actions and modifiers are validated at runtime.",
       "additionalProperties": { "type": "string" }
     }
   },

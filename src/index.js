@@ -6,7 +6,7 @@ import { loadSession } from './core.js'
 import { ConfigError } from './errors.js'
 
 const usage = `Usage: principe [-c PATH | --config PATH] ROM
-       principe [-c PATH | --config PATH] -b | --bootstrap [CORE]
+       principe [-c PATH | --config PATH] -b | --bootstrap [CORE] [-n | --no-input]
        principe [-c PATH | --config PATH] -i | --input [-p | --probe]
        principe -a | --audio
        principe -h | --help`
@@ -21,12 +21,17 @@ export function parseCommandLine (args) {
         help: { type: 'boolean', short: 'h' },
         audio: { type: 'boolean', short: 'a' },
         input: { type: 'boolean', short: 'i' },
+        'no-input': { type: 'boolean', short: 'n' },
         probe: { type: 'boolean', short: 'p' },
         bootstrap: { type: 'boolean', short: 'b' }
       }
     })
 
     // Validate mode combinations before dispatching commands that may write files.
+    if (values['no-input'] && !values.bootstrap) {
+      throw new ConfigError('--no-input requires --bootstrap')
+    }
+
     if (values.probe && !values.input) {
       throw new ConfigError('--probe requires --input')
     }
@@ -61,6 +66,7 @@ export function parseCommandLine (args) {
       help: values.help ?? false,
       audio: values.audio ?? false,
       input: values.input ?? false,
+      noInput: values['no-input'] ?? false,
       probe: values.probe ?? false,
       bootstrap: values.bootstrap ?? false
     }
@@ -74,7 +80,7 @@ export function parseCommandLine (args) {
 }
 
 export async function main (args = process.argv.slice(2)) {
-  const { rom, core, config, help, audio, input, probe, bootstrap: bootstrapping } = parseCommandLine(args)
+  const { rom, core, config, help, audio, input, noInput, probe, bootstrap: bootstrapping } = parseCommandLine(args)
 
   // Utility modes return before loading a gameplay session or its native resources.
   if (help) {
@@ -93,7 +99,7 @@ export async function main (args = process.argv.slice(2)) {
   }
 
   if (bootstrapping) {
-    await bootstrap({ core, config })
+    await bootstrap({ core, config, noInput })
     return
   }
 
