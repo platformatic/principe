@@ -32,7 +32,7 @@ jobs:
           version: 11
 
       - name: Use supported Node.js Version
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
 
@@ -103,7 +103,7 @@ jobs:
           version: 11
 
       - name: Use supported Node.js Version
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 26.10.0
 
