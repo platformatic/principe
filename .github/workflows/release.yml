@@ -37,7 +37,7 @@ jobs:
           node-version: 26.10.0
 
       - name: Restore cached dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: ~/.pnpm-store
           key: node-modules-${{ hashFiles('package.json') }}
@@ -108,7 +108,7 @@ jobs:
           node-version: 26.10.0
 
       - name: Restore cached dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: ~/.pnpm-store
           key: node-modules-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('package.json') }}
