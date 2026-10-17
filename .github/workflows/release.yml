@@ -147,7 +147,7 @@ jobs:
         run: bash src/scripts/prepare-artifact.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: principe-${{ matrix.platform }}-${{ matrix.arch }}
           path: tmp/artifact-${{ matrix.platform }}-${{ matrix.arch }}/*
@@ -166,7 +166,7 @@ jobs:
           ref: refs/tags/v${{ needs.bump-version.outputs.version }}
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
