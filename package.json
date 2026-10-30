@@ -35,7 +35,7 @@
     "neostandard": "^0.12.2",
     "prettier": "^3.8.1",
     "prettier-plugin-space-before-function-paren": "^0.0.10",
-    "rolldown": "1.0.0-rc.17",
+    "rolldown": "1.2.16",
     "semver": "^7.7.4"
   },
   "engines": {
